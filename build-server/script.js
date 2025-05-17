@@ -33,11 +33,13 @@ async function main() {
     console.log("Build process finished.");
 
     const distFolderPath = path.join(__dirname, "output", "dist");
-    const distFolderContents = readdirSync(distFolderPath, { recursive: true });
+    const distFolderContents = readdirSync(distFolderPath, { recursive: true }); // Get all files in the dist folder
 
     Console.log("Uploading files to S3...");
 
-    for (const filePath of distFolderContents) {
+    for (const file of distFolderContents) {
+      const filePath = path.join(distFolderPath, file);
+
       if (lstatSync(filePath).isDirectory()) continue;
 
       const command = new PutObjectCommand({
