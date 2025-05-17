@@ -15,7 +15,7 @@ const s3Client = new S3Client({
 const PROJECT_ID = process.env.PROJECT_ID;
 
 async function main() {
-  console.log("Initializing build server...");
+  console.log("Building the project...");
 
   const folderPath = path.join(__dirname, "output");
 
@@ -34,6 +34,8 @@ async function main() {
 
     const distFolderPath = path.join(__dirname, "output", "dist");
     const distFolderContents = readdirSync(distFolderPath, { recursive: true });
+
+    Console.log("Uploading files to S3...");
 
     for (const filePath of distFolderContents) {
       if (lstatSync(filePath).isDirectory()) continue;
