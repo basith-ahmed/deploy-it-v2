@@ -1,6 +1,8 @@
 import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
 import express from "express";
 import { generateSlug } from "random-word-slugs";
+import Redis from "ioredis";
+import { Server } from "socket.io";
 
 const ecsClient = new ECSClient({
   region: process.env.AWS_REGION,
@@ -15,6 +17,17 @@ const config = {
   TASK: process.env.ECS_TASK,
   SUBNET: process.env.ECS_SUBNET,
 };
+
+const subscriber = new Redis(process.env.REDIS_URL);
+
+const io = new Server({ cors: "*" });
+io.on("connection", (socket) => {
+  socket.on("subscribe", (channel) => { // channel = build-log:projectSlug
+    socket.join(channel);
+    socket.emit("message", `Subscribed to ${channel}`);
+  });
+});
+io.listen(9001, () => console.log("Socket server started."));
 
 const app = express();
 
@@ -59,5 +72,14 @@ app.post("/project", async (req, res) => {
     },
   });
 });
+
+async function initRedisSubscribe() {
+  console.log("Subscribed to logs...");
+  subscriber.psubscribe("build-log:*");
+  subscriber.on("pmessage", (pattern, channel, message) => {
+    io.to(channel).emit("message", message);
+  });
+}
+initRedisSubscribe();
 
 app.listen(9000, () => console.log("API server started."));

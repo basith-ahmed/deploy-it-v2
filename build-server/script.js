@@ -3,6 +3,7 @@ import { createReadStream, lstatSync, readdirSync } from "fs";
 import path from "path";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import mime from "mime-types";
+import Redis from "ioredis";
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION,
@@ -12,35 +13,48 @@ const s3Client = new S3Client({
   },
 });
 
+const publisher = new Redis(process.env.REDIS_URL);
+
+function publishLog(log) {
+  publisher.publish(`build-log:${PROJECT_ID}`, JSON.stringify(log));
+}
+
 const PROJECT_ID = process.env.PROJECT_ID;
 
 async function main() {
-  console.log("Building the project...");
+  console.log("Build started...");
+  publishLog("Build started...");
 
   const folderPath = path.join(__dirname, "output");
 
   const buildProcess = exec(`cd ${folderPath} && npm install && npm run build`);
 
   buildProcess.stdout.on("data", (data) => {
-    console.log("stdout: " + data);
+    console.log("stdout: " + data.toString());
+    publishLog(data.toString());
   });
 
   buildProcess.stderr.on("data", (data) => {
-    console.error("strerr: " + data);
+    console.error("strerr: " + data.toString());
+    publishLog(`Error: ${data.toString()}`);
   });
 
   buildProcess.on("close", async () => {
     console.log("Build process finished.");
-
+    publishLog("Build process finished.");
+    
     const distFolderPath = path.join(__dirname, "output", "dist");
     const distFolderContents = readdirSync(distFolderPath, { recursive: true }); // Get all files in the dist folder
-
-    Console.log("Uploading files to S3...");
+    
+    publishLog("Uploading build files...");
+    Console.log("Uploading build files...");
 
     for (const file of distFolderContents) {
       const filePath = path.join(distFolderPath, file);
 
       if (lstatSync(filePath).isDirectory()) continue;
+
+      publishLog(`Uploading ${file}.`);
 
       const command = new PutObjectCommand({
         Bucket: process.env.AWS_BUCKET_NAME,
@@ -50,10 +64,12 @@ async function main() {
       });
 
       await s3Client.send(command);
+      publishLog(`Uploaded ${file}.`);
     }
 
+    publishLog("Uploading done.");
     console.log("All files uploaded to S3.");
   });
 }
 
-main()
+main();
