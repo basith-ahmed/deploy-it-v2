@@ -22,7 +22,8 @@ const subscriber = new Redis(process.env.REDIS_URL);
 
 const io = new Server({ cors: "*" });
 io.on("connection", (socket) => {
-  socket.on("subscribe", (channel) => { // channel = build-log:projectSlug
+  socket.on("subscribe", (channel) => {
+    // channel = build-log:projectSlug
     socket.join(channel);
     socket.emit("message", `Subscribed to ${channel}`);
   });
@@ -34,8 +35,8 @@ const app = express();
 app.use(express.json());
 
 app.post("/project", async (req, res) => {
-  const { githubUrl } = req.body;
-  const projectSlug = generateSlug();
+  const { githubUrl, slug } = req.body;
+  const projectSlug = slug ? slug : generateSlug();
 
   const command = new RunTaskCommand({
     cluster: config.CLUSTER,
