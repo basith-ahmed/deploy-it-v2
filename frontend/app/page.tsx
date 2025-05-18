@@ -1,120 +1,92 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { io } from "socket.io-client";
+import { useEffect, useState, useCallback } from "react";
+import { useAuth } from "@/components/AuthProvider";
+import { useRouter } from "next/navigation";
+import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Github } from "lucide-react";
-import { Fira_Code } from "next/font/google";
-import axios from "axios";
 
-const socket = io("http://localhost:9002");
-
-const firaCode = Fira_Code({ subsets: ["latin"] });
+interface Project {
+  id: string;
+  name: string;
+  subdomain: string;
+  gitRepoURL: string;
+}
 
 export default function Home() {
-  const [repoURL, setURL] = useState<string>("");
+  const { token, logout } = useAuth();
+  const router = useRouter();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [newProject, setNewProject] = useState({ name: "", repoURL: "" });
 
-  const [logs, setLogs] = useState<string[]>([]);
-
-  const [loading, setLoading] = useState(false);
-
-  const [projectId, setProjectId] = useState<string | undefined>();
-  const [deployPreviewURL, setDeployPreviewURL] = useState<
-    string | undefined
-  >();
-
-  const logContainerRef = useRef<HTMLElement>(null);
-
-  const isValidURL: [boolean, string | null] = useMemo(() => {
-    if (!repoURL || repoURL.trim() === "") return [false, null];
-    const regex = new RegExp(
-      /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/]+)\/([^\/]+)(?:\/)?$/
-    );
-    return [regex.test(repoURL), "Enter valid Github Repository URL"];
-  }, [repoURL]);
-
-  const handleClickDeploy = useCallback(async () => {
-    setLoading(true);
-
-    const { data } = await axios.post(`http://localhost:9000/deploy`, {
-      gitRepoURL: repoURL,
-      slug: projectId,
-    });
-
-    if (data && data.data) {
-      const { projectSlug, url } = data.data;
-      setProjectId(projectSlug);
-      setDeployPreviewURL(url);
-
-      console.log(`Subscribing to logs:${projectSlug}`);
-      socket.emit("subscribe", `build-log:${projectSlug}`);
+  const fetchProjects = useCallback(async () => {
+    try {
+      const { data } = await api.get("/projects");
+      setProjects(data.projects);
+    } catch (error) {
+      console.error("Failed to fetch projects", error);
     }
-  }, [projectId, repoURL]);
-
-  const handleSocketIncommingMessage = useCallback((message: string) => {
-    console.log(`[Incomming Socket Message]:`, typeof message, message);
-    const { log } = JSON.parse(message);
-    setLogs((prev) => [...prev, log]);
-    logContainerRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  useEffect(() => {
-    socket.on("message", handleSocketIncommingMessage);
+  const createProject = async () => {
+    try {
+      await api.post("/project", {
+        name: newProject.name,
+        gitRepoURL: newProject.repoURL,
+      });
+      fetchProjects();
+      setNewProject({ name: "", repoURL: "" });
+    } catch (error) {
+      console.error("Project creation failed", error);
+    }
+  };
 
-    return () => {
-      socket.off("message", handleSocketIncommingMessage);
-    };
-  }, [handleSocketIncommingMessage]);
+  useEffect(() => {
+    if (!token) router.push("/login");
+    fetchProjects();
+  }, [token, router, fetchProjects]);
 
   return (
-    <main className="flex justify-center items-center h-[100vh]">
-      <div className="w-[600px]">
-        <span className="flex justify-start items-center gap-2">
-          <Github className="text-5xl" />
+    <div className="grid grid-cols-3 gap-8">
+      {/* Projects List */}
+      <div className="col-span-1">
+        <div className="mb-4">
+          <h2 className="text-xl font-bold mb-2">Create New Project</h2>
           <Input
-            disabled={loading}
-            value={repoURL}
-            onChange={(e) => setURL(e.target.value)}
-            type="url"
-            placeholder="Github URL"
+            placeholder="Project Name"
+            value={newProject.name}
+            onChange={(e) =>
+              setNewProject({ ...newProject, name: e.target.value })
+            }
           />
-        </span>
-        <Button
-          onClick={handleClickDeploy}
-          disabled={!isValidURL[0] || loading}
-          className="w-full mt-3"
-        >
-          {loading ? "In Progress" : "Deploy"}
-        </Button>
-        {deployPreviewURL && (
-          <div className="mt-2 bg-slate-900 py-4 px-2 rounded-lg">
-            <p>
-              Preview URL{" "}
-              <a
-                target="_blank"
-                className="text-sky-400 bg-sky-950 px-3 py-2 rounded-lg"
-                href={deployPreviewURL}
-              >
-                {deployPreviewURL}
-              </a>
-            </p>
+          <div className="flex items-center gap-2 mt-2">
+            <Github className="text-gray-500" />
+            <Input
+              placeholder="GitHub URL"
+              value={newProject.repoURL}
+              onChange={(e) =>
+                setNewProject({ ...newProject, repoURL: e.target.value })
+              }
+            />
           </div>
-        )}
-        {logs.length > 0 && (
+          <Button className="mt-2 w-full" onClick={createProject}>
+            Create Project
+          </Button>
+        </div>
+
+        <h2 className="text-xl font-bold mb-2">Your Projects</h2>
+        {projects.map((project) => (
           <div
-            className={`${firaCode.className} text-sm text-green-500 logs-container mt-5 border-green-500 border-2 rounded-lg p-4 h-[300px] overflow-y-auto`}
+            key={project.id}
+            className="p-4 mb-2 border rounded cursor-pointer hover:bg-gray-50"
+            onClick={() => router.push(`/projects/${project.id}`)}
           >
-            <pre className="flex flex-col gap-1">
-              {logs.map((log, i) => (
-                <code
-                  ref={logs.length - 1 === i ? logContainerRef : undefined}
-                  key={i}
-                >{`> ${log}`}</code>
-              ))}
-            </pre>
+            <h3 className="font-semibold">{project.name}</h3>
+            <p className="text-sm text-gray-600">{project.gitRepoURL}</p>
           </div>
-        )}
+        ))}
       </div>
-    </main>
+    </div>
   );
 }
