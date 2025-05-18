@@ -3,12 +3,14 @@ import express from "express";
 import { generateSlug } from "random-word-slugs";
 import cors from "cors";
 import { z } from "zod";
-import { PrismaClient } from "@prisma/client";
+import Prisma from "@prisma/client";
 import { createClient } from "@clickhouse/client";
 import { Kafka } from "kafkajs";
 import { v4 as uuid } from "uuid";
 import { readFileSync } from "fs";
 import path from "path";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 
 const ecsClient = new ECSClient({
   region: process.env.AWS_REGION,
@@ -24,6 +26,7 @@ const config = {
   SUBNET: process.env.ECS_SUBNET,
 };
 
+const { PrismaClient } = Prisma;
 const prisma = new PrismaClient();
 
 //  // ClickHouse client
@@ -204,6 +207,59 @@ app.get("/analytics/:projectId", async (req, res) => {
   }
 });
 
+// middleware 
+const authenticate = async (req, res, next) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: "Invalid token" });
+  }
+};
+
+app.post("/register", async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({
+      data: { email, password: hashedPassword },
+    });
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
+    res.json({ token });
+  } catch (error) {
+    res.status(400).json({ error: "User already exists" });
+  }
+});
+
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return res.status(400).json({ error: "Invalid credentials" });
+
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) return res.status(400).json({ error: "Invalid credentials" });
+
+  const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
+  res.json({ token });
+});
+
+app.get("/projects", authenticate, async (req, res) => {
+  const projects = await prisma.project.findMany({
+    where: { userId: req.user.userId },
+  });
+  res.json({ projects });
+});
+
+app.get("/deployments/:projectId", authenticate, async (req, res) => {
+  const deployments = await prisma.deployment.findMany({
+    where: { projectId: req.params.projectId },
+  });
+  res.json({ deployments });
+});
 
 // kafka consumer
 async function initKafkaConsumer() {
