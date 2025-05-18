@@ -36,8 +36,8 @@ export default function Home() {
   const handleClickDeploy = useCallback(async () => {
     setLoading(true);
 
-    const { data } = await axios.post(`http://localhost:9000/project`, {
-      gitURL: repoURL,
+    const { data } = await axios.post(`http://localhost:9000/deploy`, {
+      gitRepoURL: repoURL,
       slug: projectId,
     });
 

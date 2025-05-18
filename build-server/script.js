@@ -20,6 +20,7 @@ function publishLog(log) {
 }
 
 const PROJECT_ID = process.env.PROJECT_ID;
+const DEPLOYMENT_ID = process.env.DEPLOYMENT_ID;
 
 async function main() {
   console.log("Build started...");
@@ -69,6 +70,8 @@ async function main() {
 
     publishLog("Uploading done.");
     console.log("All files uploaded to S3.");
+
+    process.exit(0);
   });
 }
 
