@@ -151,6 +151,24 @@ app.post("/deploy", async (req, res) => {
   });
 });
 
+app.get("/logs/:id", async (req, res) => {
+  // deploymet id
+  const { id } = req.params;
+
+  // clickhouse client
+  const logs = await client.query({
+    query: `SELECT event_id, deployment_id, log, timestamp from log_events where deployment_id = {deployment_id:String}`,
+    query_params: {
+      deployment_id: id,
+    },
+    format: "JSONEachRow",
+  });
+
+  const rawLogs = await logs.json();
+
+  return res.json({ logs: rawLogs });
+});
+
 // kafka consumer
 async function initKafkaConsumer() {
   await consumer.connect();
