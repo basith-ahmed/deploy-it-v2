@@ -39,6 +39,32 @@ async function publishLog(log) {
 const PROJECT_ID = process.env.PROJECT_ID;
 const DEPLOYMENT_ID = process.env.DEPLOYMENT_ID;
 
+function validateBuildScript(script) {
+  const forbidden = [
+    /rm\s+-rf/,
+    /curl\s+/,
+    /wget\s+/,
+    /ssh\s+/,
+    /docker\s+/,
+    /mkfs/,
+    /dd\s+/,
+    /:\s*>/,
+    /\|\|/,
+    /&&/,
+    /;/,
+  ];
+  for (const pattern of forbidden) {
+    if (pattern.test(script)) {
+      throw new Error(`Build script contains forbidden pattern: ${pattern}`);
+    }
+  }
+  //  whitelist
+  // const allowed = [/^(react-scripts|next)\s+build/];
+  // if (!allowed.some((re) => re.test(script))) {
+  //   throw new Error("Build script not whitelisted.");
+  // }
+}
+
 async function main() {
   producer.connect();
 
@@ -46,6 +72,17 @@ async function main() {
   await publishLog("Build started...");
 
   const folderPath = path.join(__dirname, "output");
+
+  // validate the build script before execution
+  const pkgPath = path.join(folderPath, "package.json");
+
+  if (!fs.existsSync(pkgPath)) throw new Error("package.json not found.");
+  
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  const buildScript = pkg.scripts?.build;
+  if (!buildScript) throw new Error("No build script defined.");
+
+  validateBuildScript(buildScript);
 
   const buildProcess = exec(`cd ${folderPath} && npm install && npm run build`);
 
@@ -59,7 +96,7 @@ async function main() {
     await publishLog(`Error: ${data.toString()}`);
   });
 
-  buildProcess.on("close", async () => {
+  buildProcess.on("close", async (code) => {
     console.log("Build process finished.");
     await publishLog("Build process finished.");
 
@@ -90,8 +127,11 @@ async function main() {
     await publishLog("Uploading done.");
     console.log("All files uploaded to S3.");
 
-    process.exit(0);
+    process.exit(code ?? 0);
   });
 }
 
-main();
+main().catch((err) => {
+  console.error("Build validation failed:", err.message);
+  process.exit(1);
+});
