@@ -9,40 +9,47 @@ const BASE_PATH = process.env.BASE_PATH;
 const app = express();
 const proxy = httpProxy.createProxy();
 
-app.use((req, res) => {
+app.use(express.json());
+
+app.use(async (req, res) => {
   const hostname = req.hostname;
   const subdomain = hostname.split(".")[0];
 
-  const project = prisma.project.findFirst({
-    where: {
-      OR: [
-        {
-          subdomain: subdomain,
-        },
-        {
-          customDomain: subdomain,
-        },
-      ],
-    },
-  });
+  try {
+    const project = await prisma.project.findFirst({
+      where: {
+        OR: [
+          {
+            subdomain: subdomain,
+          },
+          {
+            customDomain: subdomain,
+          },
+        ],
+      },
+    });
 
-  if (!project) {
-    return res.status(404).send("Page not found");
-  }
-
-  const { id } = project;
-
-  const resolvePath = `${BASE_PATH}/${id}`;
-
-  return proxy.web(
-    req,
-    res,
-    { target: resolvePath, changeOrigin: true },
-    (err) => {
-      console.error(err);
-      res.status(500).send("Proxy error");
+    if (!project) {
+      return res.status(404).send("Page not found");
     }
-  );
+
+    const { id } = project;
+
+    const resolvePath = `${BASE_PATH}/${id}`;
+
+    return proxy.web(
+      req,
+      res,
+      { target: resolvePath, changeOrigin: true },
+      (err) => {
+        console.error(err);
+        res.status(500).send("Proxy error");
+      }
+    );
+  } catch (error) {
+    console.error("Database error:", error);
+    return res.status(500).send("Database error");
+  }
 });
 
 proxy.on("proxyReq", (proxyReq, req, res) => {
@@ -53,4 +60,6 @@ proxy.on("proxyReq", (proxyReq, req, res) => {
   return proxyReq;
 });
 
-app.listen(8000, () => console.log("Proxy server started."));
+app.listen(8000, () => {
+  console.log("Proxy server started on port 8000.");
+});
