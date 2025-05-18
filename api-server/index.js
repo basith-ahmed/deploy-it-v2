@@ -158,25 +158,34 @@ async function initKafkaConsumer() {
 
   await consumer.run({
     autoCommit: false,
-    eachBatch: async function ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) {
+    eachBatch: async function ({
+      batch,
+      resolveOffset,
+      heartbeat,
+      commitOffsetsIfNecessary,
+    }) {
       const messages = batch.messages;
       console.log(`Received ${messages.length} messages`);
-      
+
       for (const message of messages) {
         const messageString = message.value.toString();
 
         const { PROJECT_ID, DEPLOYMENT_ID, log } = JSON.parse(messageString);
 
-        // insert log into ClickHouse
-        const { query_id } = await client.insert({
-          table: "log_events",
-          values: [{ event_id: uuid(), deployment_id: DEPLOYMENT_ID, log}],
-          format: "JSONEachRow",
-        });
-        
-        resolveOffset(message.offset);
-        await commitOffsetsIfNecessary(message.offset)
-        await heartbeat()
+        try {
+          // insert log into ClickHouse
+          const { query_id } = await client.insert({
+            table: "log_events",
+            values: [{ event_id: uuid(), deployment_id: DEPLOYMENT_ID, log }],
+            format: "JSONEachRow",
+          });
+
+          resolveOffset(message.offset);
+          await commitOffsetsIfNecessary(message.offset);
+          await heartbeat();
+        } catch (error) {
+          console.log("Error parsing message:", error);
+        }
       }
     },
   });
