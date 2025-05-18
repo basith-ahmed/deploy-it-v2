@@ -11,7 +11,14 @@
   "license": "ISC",
   "packageManager": "pnpm@10.6.2",
   "dependencies": {
+    "@prisma/client": "^6.8.2",
     "express": "^5.1.0",
     "http-proxy": "^1.18.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.18",
+    "prisma": "^6.8.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
   }
 }
