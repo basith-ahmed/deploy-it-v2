@@ -1,7 +1,6 @@
 import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
 import express from "express";
 import { generateSlug } from "random-word-slugs";
-import { Server } from "socket.io";
 import cors from "cors";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
@@ -48,16 +47,6 @@ const kafka = new Kafka({
   },
 });
 const consumer = kafka.consumer({ groupId: "api-server-logs-consumer" });
-
-const io = new Server({ cors: "*" });
-io.on("connection", (socket) => {
-  socket.on("subscribe", (channel) => {
-    // channel = build-log:projectSlug
-    socket.join(channel);
-    socket.emit("message", `Subscribed to ${channel}`);
-  });
-});
-io.listen(9001, () => console.log("Socket server started."));
 
 const app = express();
 
@@ -145,8 +134,9 @@ app.post("/deploy", async (req, res) => {
   return res.json({
     status: "queued",
     data: {
-      project_id: projectSlug,
-      url: `http://${projectSlug}.locaolhost:8000`,
+      project_id: projectId,
+      deployment_id: deployment.id,
+      subdomain: project.subdomain,
     },
   });
 });
@@ -168,6 +158,52 @@ app.get("/logs/:id", async (req, res) => {
 
   return res.json({ logs: rawLogs });
 });
+
+app.get("/analytics/:projectId", async (req, res) => {
+  const { projectId } = req.params;
+
+  try {
+    const analytics = await prisma.analytics.findMany({
+      where: { projectId },
+    });
+
+    if (!analytics.length)
+      return res.status(404).json({ error: "No analytics found" });
+
+    const result = {
+      totalRequests: analytics.length,
+      requestsByPath: {},
+      requestsByMethod: {},
+      userAgents: {},
+      ipAddresses: {},
+    };
+
+    for (const entry of analytics) {
+      // path  count
+      result.requestsByPath[entry.path] =
+        (result.requestsByPath[entry.path] || 0) + 1;
+
+      // method count
+      result.requestsByMethod[entry.method] =
+        (result.requestsByMethod[entry.method] || 0) + 1;
+
+      // user agent count
+      if (entry.userAgent)
+        result.userAgents[entry.userAgent] =
+          (result.userAgents[entry.userAgent] || 0) + 1;
+
+      // ip count
+      if (entry.ip)
+        result.ipAddresses[entry.ip] = (result.ipAddresses[entry.ip] || 0) + 1;
+    }
+
+    return res.json({ analytics: result });
+  } catch (error) {
+    console.error("Analytics error:", error);
+    return res.status(500).json({ error: "Failed to process analytics" });
+  }
+});
+
 
 // kafka consumer
 async function initKafkaConsumer() {
