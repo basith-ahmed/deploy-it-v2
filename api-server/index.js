@@ -1,11 +1,15 @@
 import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
 import express from "express";
 import { generateSlug } from "random-word-slugs";
-import Redis from "ioredis";
 import { Server } from "socket.io";
 import cors from "cors";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
+import { createClient } from "@clickhouse/client";
+import { Kafka } from "kafkajs";
+import { v4 as uuid } from "uuid";
+import { readFileSync } from "fs";
+import path from "path";
 
 const ecsClient = new ECSClient({
   region: process.env.AWS_REGION,
@@ -23,7 +27,27 @@ const config = {
 
 const prisma = new PrismaClient();
 
-const subscriber = new Redis(process.env.REDIS_URL);
+//  // ClickHouse client
+const client = createClient({
+  host: process.env.CLICKHOUSE_HOST,
+  database: process.env.CLICKHOUSE_DB,
+  username: process.env.CLICKHOUSE_USER,
+  password: process.env.CLICKHOUSE_PASSWORD,
+});
+
+const kafka = new Kafka({
+  clientId: "api-server",
+  brokers: [process.env.KAFKA_BROKER],
+  ssl: {
+    ca: [readFileSync(path.join(__dirname, "kafka.pem"), "utf-8")],
+  },
+  sasl: {
+    username: process.env.KAFKA_USERNAME,
+    password: process.env.KAFKA_PASSWORD,
+    mechanism: "plain",
+  },
+});
+const consumer = kafka.consumer({ groupId: "api-server-logs-consumer" });
 
 const io = new Server({ cors: "*" });
 io.on("connection", (socket) => {
@@ -127,13 +151,36 @@ app.post("/deploy", async (req, res) => {
   });
 });
 
-async function initRedisSubscribe() {
-  console.log("Subscribed to logs...");
-  subscriber.psubscribe("build-log:*");
-  subscriber.on("pmessage", (pattern, channel, message) => {
-    io.to(channel).emit("message", message);
+// kafka consumer
+async function initKafkaConsumer() {
+  await consumer.connect();
+  await consumer.subscribe({ topics: ["build-log"], fromBeginning: true });
+
+  await consumer.run({
+    autoCommit: false,
+    eachBatch: async function ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) {
+      const messages = batch.messages;
+      console.log(`Received ${messages.length} messages`);
+      
+      for (const message of messages) {
+        const messageString = message.value.toString();
+
+        const { PROJECT_ID, DEPLOYMENT_ID, log } = JSON.parse(messageString);
+
+        // insert log into ClickHouse
+        const { query_id } = await client.insert({
+          table: "log_events",
+          values: [{ event_id: uuid(), deployment_id: DEPLOYMENT_ID, log}],
+          format: "JSONEachRow",
+        });
+        
+        resolveOffset(message.offset);
+        await commitOffsetsIfNecessary(message.offset)
+        await heartbeat()
+      }
+    },
   });
 }
-initRedisSubscribe();
+initKafkaConsumer();
 
 app.listen(9000, () => console.log("API server started."));

@@ -25,7 +25,6 @@ const kafka = new Kafka({
     mechanism: "plain",
   },
 });
-
 const producer = kafka.producer();
 
 async function publishLog(log) {
