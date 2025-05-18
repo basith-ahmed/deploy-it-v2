@@ -18,24 +18,25 @@ app.use(async (req, res) => {
   try {
     const project = await prisma.project.findFirst({
       where: {
-        OR: [
-          {
-            subdomain: subdomain,
-          },
-          {
-            customDomain: subdomain,
-          },
-        ],
+        OR: [{ subdomain: subdomain }, { customDomain: subdomain }],
       },
     });
 
     if (!project) {
-      return res.status(404).send("Page not found");
+      return res.status(404).send("Project not found");
     }
 
-    const { id } = project;
+    await prisma.analytics.create({
+      data: {
+        projectId: project.id,
+        path: req.url,
+        method: req.method,
+        userAgent: req.headers["user-agent"] || "",
+        ip: req.ip,
+      },
+    });
 
-    const resolvePath = `${BASE_PATH}/${id}`;
+    const resolvePath = `${BASE_PATH}/${project.id}`;
 
     return proxy.web(
       req,
