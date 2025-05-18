@@ -26,7 +26,7 @@ app.use(async (req, res) => {
       return res.status(404).send("Project not found");
     }
 
-    await prisma.analytics.create({
+    prisma.analytics.create({
       data: {
         projectId: project.id,
         path: req.url,
